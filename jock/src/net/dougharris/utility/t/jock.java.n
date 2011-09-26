@@ -1,0 +1,548 @@
+     1	package net.dougharris.utility;
+     2	
+     3	import net.dougharris.utility.jockmods.*;
+     4	
+     5	import java.util.logging.Level;
+     6	import java.util.logging.Logger;
+     7	
+     8	import java.net.InetAddress;
+     9	import java.net.InetSocketAddress;
+    10	import java.net.ServerSocket;
+    11	import java.net.Socket;
+    12	import java.net.SocketException;
+    13	import java.net.ConnectException;
+    14	import java.net.UnknownHostException;
+    15	
+    16	import java.io.BufferedInputStream;
+    17	import java.io.BufferedOutputStream;
+    18	import java.io.FileInputStream;
+    19	import java.io.FileOutputStream;
+    20	import java.io.InputStream;
+    21	import java.io.OutputStream;
+    22	import java.io.PrintStream;
+    23	import java.io.IOException;
+    24	
+    25	public class jock{
+    26	  static String options="?-k-A-e-i-o-s-S-v-V-y-b_n_N_c_C_O_I_p_P_h_H_d_D_r_R_w_W_l-L_E_";
+    27	  static P cmdArgs;
+    28	  static StringBuffer cmdLine;
+    29	
+    30	  /* configuration variables */
+    31	  static boolean echo;
+    32	  static boolean server;
+    33	  static boolean source;
+    34	  static boolean serverSource;
+    35	  static boolean useStdin;
+    36	  static String inFileName;
+    37	  static boolean useStdout;
+    38	  static String outFileName;
+    39	  static int operationCount;
+    40	  static int operatorCount;
+    41	  static int operatorNumber;
+    42	  static Level logLevel;
+    43	
+    44	  /* timing variables */
+    45	  static int startDelay;
+    46	  static int spinDelay;
+    47	  static int minConnectDelay;
+    48	  static int maxConnectDelay;
+    49	
+    50	  static InetAddress serverHost;
+    51	  static InetAddress clientHost;
+    52	  static int serverPort;
+    53	  static int clientPort;
+    54	
+    55	  static boolean noDelay;
+    56	  static int soLinger;
+    57	  static boolean keepAlive;
+    58	
+    59	
+    60	  static int sizeRead;
+    61	  static int sizeReadBuffer;
+    62	  static int sizeWrite;
+    63	  static int sizeWriteBuffer;
+    64	
+    65	  static int backlog;
+    66	  static String processorClassName;
+    67	  static Processor processor;
+    68	  static Discard discard=new Discard();
+    69	
+    70	  Chargen chargen;
+    71	
+    72	  public static void help(){
+    73	    P.rintln("[-s # serverMode][-S # sourceMode]");
+    74	    P.rintln("[-e # echoMode][-E echoProcessor]");
+    75	    P.rintln("[-h server][-H client]");
+    76	    P.rintln("[-p serverPort][-P clientPort]");
+    77	    P.rintln("[-i|-I inFileName] [-o|-O outFileName]");
+    78	    P.rintln("[-v #light logging] [-V # heavy logging]");
+    79	    P.rintln("[-l #log to stderr] [-L logFileName]");
+    80	    P.rintln("[-r userReadSize][-R socketReadSize]");
+    81	    P.rintln("[-w userWriteSize][-W socketWriteSize]");
+    82	    P.rintln("[-n operationCount][-N operatorCount]");
+    83	    P.rintln("[-d spinDelay][-D startDelay]");
+    84	    P.rintln("[-c connections][-C connections]");
+    85	  }
+    86	
+    87	  static class Client implements Runnable{
+    88	    int whichOperator;
+    89	    Socket clientSocket;
+    90	
+    91	    Client(){
+    92	      try{
+    93	        whichOperator=operatorNumber++;
+    94	        clientSocket = new Socket();
+    95	        setSocketArgs(clientSocket);
+    96	        logSocketArgs(clientSocket);
+    97	        clientSocket.bind(new InetSocketAddress(clientHost, clientPort));
+    98	        clientSocket.connect(new InetSocketAddress(serverHost, serverPort));
+    99	      } catch(IOException x){
+   100	        throw new RuntimeException("Client constructor "+x);
+   101	      }
+   102	    }
+   103	
+   104	    public void start(){
+   105	      new Thread(this).start();
+   106	    }
+   107	
+   108	    public void run(){
+   109	      try{
+   110	        cmdArgs.config("client "+whichOperator+" socket connected.");
+   111	        configureAndRun(clientSocket,whichOperator);
+   112	        clientSocket.close();
+   113	        cmdArgs.config("client "+whichOperator+" socket closed.");
+   114	      }catch(IOException x){
+   115	        throw new RuntimeException(x);
+   116	      }
+   117	    }
+   118	  }
+   119	
+   120	  static class Server implements Runnable{
+   121	    private int whichOperator;
+   122	    private Socket serviceSocket;
+   123	
+   124	    Server(ServerSocket listenSocket) throws IOException{
+   125	      whichOperator=operatorNumber++;
+   126	      serviceSocket = listenSocket.accept();
+   127	      cmdArgs.config("server "+whichOperator+" socket accepted.");
+   128	      setSocketArgs(serviceSocket);
+   129	      logSocketArgs(serviceSocket);
+   130	    }
+   131	
+   132	    public void start(){
+   133	      new Thread(this).start();
+   134	    }
+   135	
+   136	    public void run(){
+   137	      try{
+   138	        configureAndRun(serviceSocket,whichOperator);
+   139	         serviceSocket.close();
+   140	        cmdArgs.config("server "+whichOperator+" socket closed.");
+   141	      } catch (IOException x){
+   142	        throw new RuntimeException(x);
+   143	      }
+   144	    }
+   145	  }
+   146	
+   147	  static class Sender implements Runnable{
+   148	    private Socket senderSocket;
+   149	    private InputStream iUser;
+   150	    private Thread runThread;
+   151	    private byte[] bWrite;
+   152	    int nWrite;
+   153	    int tWrite;
+   154	    long tWriteTime;
+   155	    private int whichOperator;
+   156	    OutputStream oNetwork;
+   157	
+   158	    Sender(Socket senderSocket, int whichOperator){
+   159	      this.senderSocket=senderSocket;
+   160	      this.whichOperator=whichOperator;
+   161	      bWrite = new byte[sizeWrite];
+   162	      try{
+   163	        if(null!=cmdArgs.getProperty("-I")){
+   164	          iUser=new FileInputStream(inFileName);
+   165	        } else{
+   166	          iUser=useStdin?System.in:new Chargen();
+   167	        }
+   168	        oNetwork = senderSocket.getOutputStream();
+   169	      } catch(IOException x){
+   170	        throw new RuntimeException("sender constructor "+x);
+   171	      }
+   172	    }
+   173	
+   174	    public void start(){
+   175	      runThread = new Thread(this);
+   176	      runThread.start();
+   177	    }
+   178	
+   179	    public void run(){
+   180	      cmdArgs.config("sender "+whichOperator+" starting.");
+   181	      try{
+   182	        P.ause(startDelay);
+   183	        cmdArgs.fine(" starting Sender");
+   184	        int iterationLimit=operationCount;
+   185		tWrite=0;
+   186		tWriteTime=-cmdArgs.now();
+   187		cmdArgs.fine("Original tWriteTime is "+tWriteTime);
+   188	        for (int iterationCount=0;;iterationCount++){
+   189	          if ((iterationLimit>0)&&(iterationCount==iterationLimit)) break;
+   190	          if (-1==(nWrite=iUser.read(bWrite))) break;
+   191		  tWrite+=nWrite;
+   192	          cmdArgs.fine
+   193	             (whichOperator+" iteration "+iterationCount
+   194	             +" input to write "+nWrite+" total "+tWrite);
+   195	          oNetwork.write(bWrite,0,nWrite);
+   196	          P.ause(spinDelay);
+   197	        }
+   198		tWriteTime+=P.now();
+   199		double ftWriteTime=tWriteTime/1000.0;
+   200	        cmdArgs.fine("wrote "+tWrite+ " bytes in "+(ftWriteTime)+" s");
+   201	        cmdArgs.fine("writing Bandwidth = "+(tWrite/(ftWriteTime))+" bytes/sec");
+   202	        senderSocket.shutdownOutput();
+   203	        cmdArgs.config("Sender "+whichOperator+" shutdownOutput.");
+   204	      } catch(IOException x){
+   205	        throw new RuntimeException(x);
+   206	      }
+   207	    }
+   208	  }
+   209	
+   210	  static class Receiver implements Runnable{
+   211	    private Socket receiverSocket;
+   212	    private OutputStream oUser;
+   213	    private Thread runThread;
+   214	    private int whichOperator;
+   215	    InputStream iNetwork;
+   216	
+   217	    Receiver(Socket receiverSocket, int whichOperator){
+   218	      this.receiverSocket=receiverSocket;
+   219	      this.whichOperator=whichOperator;
+   220	      try{
+   221	        if(null!=cmdArgs.getProperty("-O")){
+   222	          oUser=new FileOutputStream(outFileName);
+   223	        } else{
+   224	          oUser = useStdout?(OutputStream)System.out:discard;
+   225	        }
+   226	        iNetwork = receiverSocket.getInputStream();
+   227	      } catch(IOException x){
+   228	        throw new RuntimeException("receiver constructor ",x);
+   229	      }
+   230	    }
+   231	
+   232	    public void start(){
+   233	      runThread = new Thread(this);
+   234	      runThread.start();
+   235	    }
+   236	
+   237	    public void join(){
+   238	      try{runThread.join();}catch(InterruptedException ignored){}
+   239	    }
+   240	
+   241	    public void run(){
+   242	      cmdArgs.config("Receiver" +whichOperator+" run.");
+   243	      byte[] bRead = new byte[sizeRead];
+   244	      int nRead;
+   245	      int tRead;
+   246	      long tReadTime;
+   247	      try{
+   248	         int iterationLimit=operationCount;
+   249	        P.ause(startDelay);
+   250		tRead=0;
+   251		tReadTime= -cmdArgs.now();
+   252	        for (int iterationCount=0;;iterationCount++){
+   253	          if ((iterationLimit>0)&&(iterationCount==iterationLimit)) break;
+   254	          if (-1==(nRead=iNetwork.read(bRead))) break;
+   255		  tRead+=nRead;
+   256	          cmdArgs.fine
+   257	    (whichOperator+" iteration "+iterationCount+" read "+nRead+" total "+tRead);
+   258	          oUser.write(bRead,0, nRead);
+   259	          P.ause(spinDelay);
+   260	        }
+   261		tReadTime+=P.now();
+   262		double ftReadTime=tReadTime/1000.0;
+   263	        cmdArgs.fine("read "+tRead+ " bytes in "+(ftReadTime)+" s");
+   264	        cmdArgs.config("Receiver "+whichOperator+" shutdown.");
+   265	        cmdArgs.fine("reading Bandwidth = "+(tRead/(ftReadTime))+" bytes/sec");
+   266	      } catch(IOException x){
+   267	        throw new RuntimeException(x);
+   268	      }
+   269	    }
+   270	  }
+   271	
+   272	  static class ProcessIO implements Runnable{
+   273	    private Socket processSocket;
+   274	    private InputStream i;
+   275	    private OutputStream o;
+   276	    private int whichOperator;
+   277	
+   278	    private ProcessIO(Socket processSocket, int whichOperator){
+   279	      this.processSocket=processSocket;
+   280	      this.whichOperator=whichOperator;
+   281	      try{
+   282	        this.i=processSocket.getInputStream();
+   283	        this.o=processSocket.getOutputStream();
+   284	      } catch(IOException x){
+   285	        throw new RuntimeException(x);
+   286	      }
+   287	    }
+   288	
+   289	    public void start(){
+   290	      (new Thread(this)).start();
+   291	    }
+   292	
+   293	    public void run(){
+   294	      processor = (Processor) P.getInstance(processorClassName);
+   295	      cmdArgs.config(whichOperator+" run processor.");
+   296	      try{
+   297	        processor.process(i,o);
+   298	        processSocket.shutdownOutput();
+   299	        cmdArgs.config("Processor "+whichOperator+" shutdownOutput.");
+   300	      } catch(IOException x){
+   301	         throw new RuntimeException(x);
+   302	      } catch(ProcessorException x){
+   303	         throw new RuntimeException(x);
+   304	      }
+   305	    }
+   306	  }
+   307	
+   308	  public static void main(String[] args){
+   309	    cmdArgs = P.arseArgs(options,args);
+   310	    cmdLine=new StringBuffer();
+   311	    cmdLine.append("\"jock");
+   312	    for (int i=0;i<args.length;i++){
+   313	      cmdLine.append(" ");
+   314	      cmdLine.append(args[i]);
+   315	    }
+   316	    cmdLine.append("\" ");
+   317	
+   318	    setLogging();
+   319	    setArgs();
+   320	    setNames();
+   321	
+   322	    if (cmdArgs.getFlag("-?")){
+   323	      help();
+   324	      P.exit(0);
+   325	    }
+   326	
+   327	    if (server){
+   328	      Listen();
+   329	    } else {
+   330	      Connect();
+   331	    }
+   332	  }
+   333	
+   334	/**
+   335	  * java.util.logging.Level has 7 levels plus the extremes of NONE and ALL.
+   336	  * jock uses four of these levels internally,
+   337	  * and uses the -v and -V flags to set them.
+   338	  * The default logging if no flags are specified is SEVERE.
+   339	  * In the jock code this level is accomplished with the severe() method.
+   340	  * This is only used just before throwing a RuntimeException.
+   341	  * For a moderate amount of logging, limited to basic information
+   342	  * only, the -v flag by itself produces Level.INFO logging.
+   343	  * In the jock code this level is accomplished with the info() method.
+   344	  * If you would like logging up through addressing, and creating objects,
+   345	  * the -V flag produces CONFIG level logging, done in the code with config().
+   346	  * Finally, the finest logging that the jock code itself performs is specified
+   347	  * using both flags -v and -V, and done in the code by fine().
+   348	  * 
+   349	  * You may wish to send the logging information to a file, rather than
+   350	  * to the default standard error stream, and this is done by giving the
+   351	    name of that file as the value of the property -L.
+   352	  */
+   353	  static void setLogging(){
+   354	    logLevel=Level.SEVERE;
+   355	    boolean logInfo = cmdArgs.getFlag("-v");
+   356	    boolean logFine = cmdArgs.getFlag("-V");
+   357	    if (!logFine){
+   358	      if (logInfo){ // -v
+   359	        logLevel=Level.INFO;
+   360	      }
+   361	    } else { // logFine
+   362	      if (!logInfo){ // -V
+   363	        logLevel=Level.CONFIG;
+   364	      } else { // -v -V
+   365	        logLevel=Level.FINE;
+   366	      }
+   367	    }
+   368	    cmdArgs.setLogLevel(logLevel);
+   369	    if (null!=cmdArgs.getProperty("-L")){
+   370	      String logFileName=cmdArgs.getProperty("-L");
+   371	      cmdArgs.setLogFile(logFileName);
+   372	    }
+   373	  }
+   374	
+   375	  static void setArgs(){
+   376	    cmdArgs.info("cmdline "+cmdLine);
+   377	    server      = cmdArgs.getFlag("-s");
+   378	    cmdArgs.info("server "+server);
+   379	    echo       = cmdArgs.getFlag("-e");
+   380	    cmdArgs.info("echo "+echo);
+   381	    serverSource = cmdArgs.getFlag("-S");
+   382	    cmdArgs.info("serverSource "+serverSource);
+   383	    source=!server^serverSource;//either both false or both true
+   384	    sizeRead   = cmdArgs.getIntProperty("-r",1024);
+   385	    sizeWrite  = cmdArgs.getIntProperty("-w",1024);
+   386	    sizeReadBuffer   = cmdArgs.getIntProperty("-R",0);
+   387	    sizeWriteBuffer  = cmdArgs.getIntProperty("-W",0);
+   388	    useStdin  = cmdArgs.getFlag("-i");
+   389	    inFileName  = cmdArgs.getProperty("-I");
+   390	    if (null!=inFileName){
+   391	      useStdin=true;
+   392	    }
+   393	    useStdout = cmdArgs.getFlag("-o");
+   394	    outFileName  = cmdArgs.getProperty("-O");
+   395	    startDelay = cmdArgs.getIntProperty("-D",0);
+   396	    spinDelay  = cmdArgs.getIntProperty("-d",0);
+   397	    minConnectDelay = cmdArgs.getIntProperty("-c",0);
+   398	    maxConnectDelay = cmdArgs.getIntProperty("-C",0);
+   399	    operationCount  = cmdArgs.getIntProperty("-n",0);
+   400	    operatorCount   = cmdArgs.getIntProperty("-N",1);
+   401	    backlog    = cmdArgs.getIntProperty("-b" ,5);
+   402	    processorClassName = cmdArgs.getProperty("-E","net.dougharris.utility.jockmods.EchoProcessor");
+   403	    if (null!=cmdArgs.getProperty("-E")){
+   404	      echo=true;
+   405	    }
+   406	    if (useStdin&&(null==cmdArgs.getProperty("-n"))){
+   407	      operationCount=0;
+   408	    }
+   409	  }
+   410	
+   411	  static void setSocketArgs(Socket s) throws SocketException{
+   412	    if (cmdArgs.getFlag("-y")){
+   413	      s.setTcpNoDelay(true);
+   414	    }
+   415	    cmdArgs.fine(" noDelay  "+s.getTcpNoDelay());
+   416	    if (cmdArgs.getFlag("-k")){
+   417	      s.setKeepAlive(true);
+   418	    }
+   419	    cmdArgs.fine(" keepalive  "+s.getKeepAlive());
+   420	
+   421	    /* THIS IS VERY WRONG: trying to set property linger, not what -l is for
+   422	    if (null!=cmdArgs.getProperty("-l")){
+   423	      soLinger  = cmdArgs.getIntProperty("-l",0);
+   424	      s.setSoLinger(true, soLinger);
+   425	    }
+   426	    cmdArgs.fine(" linger  "+s.getSoLinger());
+   427	    */
+   428	
+   429	    if (null!=cmdArgs.getProperty("-W")){
+   430	      s.setSendBufferSize(sizeWriteBuffer);
+   431	      cmdArgs.fine(" request send Buffer "+sizeWriteBuffer);
+   432	    }
+   433	    if (null!=cmdArgs.getProperty("-R")){
+   434	      s.setReceiveBufferSize(sizeReadBuffer);
+   435	      cmdArgs.fine(" request receive Buffer "+sizeReadBuffer);
+   436	    }
+   437	  }
+   438	
+   439	  static void logSocketArgs(Socket s) throws SocketException{
+   440	     cmdArgs.config("send buffer size:"+s.getSendBufferSize());
+   441	     cmdArgs.config("receive buffer size:"+s.getReceiveBufferSize());
+   442	  }
+   443	
+   444	  static void setServerSocketArgs(ServerSocket s) throws SocketException{
+   445	    if (null!=cmdArgs.getProperty("-R")){
+   446	      s.setReceiveBufferSize(sizeReadBuffer);
+   447	    }
+   448	  }
+   449	
+   450	  static void setNames(){
+   451	    try{
+   452	      InetAddress local=InetAddress.getLocalHost();
+   453	      //JDH 
+   454	      //JDH On client clientHost is localHost
+   455	      //JDH On server clientHost is remoteHost
+   456	      //JDH On client serverHost is remoteHost
+   457	      //JDH On server serverHost is remoteHost
+   458	      //JDH
+   459	      String localName=local.getHostName();
+   460	      String serverName = (cmdArgs.getProperty("-h",localName));
+   461	      serverHost = InetAddress.getByName(serverName);
+   462	      serverPort = cmdArgs.getIntProperty("-p",8888);
+   463	      String clientName = (cmdArgs.getProperty("-H",server?null:localName));
+   464	      clientHost = InetAddress.getByName(clientName);
+   465	      clientPort = cmdArgs.getIntProperty("-P", 0);
+   466	//System.err.println(">>>>> clientHost <<<<<<<"+ clientHost);
+   467	//System.err.println(">>>>> clientPort <<<<<<<"+ clientPort);
+   468	//System.err.println(">>>>> serverHost <<<<<<<"+serverHost);
+   469	//System.err.println(">>>>> serverPort <<<<<<<"+serverPort);
+   470	      cmdArgs.config("server address "+serverHost+":"+serverPort);
+   471	      cmdArgs.config("client address "+clientHost+":"+clientPort);
+   472	    } catch (UnknownHostException x){
+   473	      P.exception(x,1);
+   474	    } catch (NumberFormatException x){
+   475	      P.exception(x,1);
+   476	    }
+   477	  }
+   478	
+   479	  static void configureAndRun(Socket s, int whichOperator) throws IOException{
+   480	    if (!source){ //this object is not to be the source
+   481	      if(echo){
+   482	        new ProcessIO(s, whichOperator).run();
+   483	      } else {
+   484	         new Receiver(s, whichOperator).run();
+   485	      }
+   486	    } else { // this object is to be the source
+   487	      Receiver r=null;
+   488	      if (echo){
+   489	        r=new Receiver(s,whichOperator);
+   490	        r.start();
+   491	      }
+   492	      new Sender(s,whichOperator).run();
+   493	      if (r!=null){
+   494	        r.join();
+   495	      }
+   496	    }
+   497	  }
+   498	
+   499	  static void Listen(){
+   500	    ServerSocket listenSocket;
+   501	    Socket serviceSocket;
+   502	    int serverSpawned=0;
+   503	    boolean shouldRun = true;
+   504	    cmdArgs.config("Running as Listen()");
+   505	    try{
+   506	      listenSocket = new ServerSocket(serverPort, backlog, serverHost);
+   507	      setServerSocketArgs(listenSocket);
+   508	      if (!cmdArgs.getFlag("-N")){
+   509	        new Server(listenSocket).run();
+   510	      } else {
+   511	        while(shouldRun){
+   512	          if ((operatorCount>0)&&((++serverSpawned)>=operatorCount)){
+   513	            break;
+   514	          }
+   515	          new Server(listenSocket).start();
+   516	        }
+   517	      }
+   518	      listenSocket.close();
+   519	    }catch (IOException x){
+   520	      throw new RuntimeException(x);
+   521	    }
+   522	  }
+   523	
+   524	/**
+   525	 * This is called to handle Connections, thus from a client,
+   526	 * which for jock is equivalent to not having the -s flag set.
+   527	 * If the -N propery is not specified then it makes a single connection
+   528	 * and when that is completed it dies.  If that property is specified
+   529	 * with the value 0 then it keeps making connections at a rate
+   530	 * specified by the combined values of the -c/-C properties (what
+   531	 * is the default). Otherwise it spawns the specified number of threads,
+   532	 * at the specified rate.
+   533	**/
+   534	  static void Connect(){
+   535	    cmdArgs.config("Running Connector");
+   536	    if (!cmdArgs.getFlag("-N")){
+   537	      new Client().run();
+   538	    } else {
+   539	      for(int clientsSpawned=0;;clientsSpawned++){
+   540	        if ((operatorCount>0)&&(clientsSpawned >= operatorCount)){
+   541	          break;
+   542	        }
+   543	        P.ause(minConnectDelay,maxConnectDelay);
+   544	        new Client().start();
+   545	      }
+   546	    }
+   547	  }
+   548	}

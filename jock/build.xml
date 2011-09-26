@@ -1,0 +1,71 @@
+<project name="jock" basedir = "." default="compile">
+  <property name = "app-name" value="jock" />
+  <property name = "project-dir" value = "${basedir}" />
+  <property name = "src-dir" value = "${basedir}/src" />
+  <property name = "build-dir" value = "${project-dir}/build" />
+  <property name = "lib-dir" value = "${build-dir}/lib" />
+  <property name = "doc-dir" value = "${build-dir}/docs" />
+  <property name = "class-dir" value = "${build-dir}/classes" />
+  <property name = "build.compiler" value = "modern" />
+
+  <target name = "init">
+    <mkdir dir = "${build-dir}" />
+    <mkdir dir = "${lib-dir}" />
+    <mkdir dir = "${doc-dir}" />
+    <mkdir dir = "${class-dir}" />
+    <tstamp/>
+  </target>
+
+  <target name = "compile" depends = "init">
+    <javac destdir = "${class-dir}" includeAntRuntime="false">
+      <src path="${src-dir}"/>
+      <include name="net/dougharris/utility/jock.java"/>
+      <include name="net/dougharris/utility/${app-name}mods/*.java"/>
+      <include name="net/dougharris/utility/P.java"/>
+    </javac>
+  </target>
+
+  <target name="docs" depends="compile">
+    <mkdir dir="${doc-dir}/api"/>
+      <javadoc
+         packagenames="net.dougharris.utility"
+	        sourcepath="${src-dir}"
+	        destdir="${doc-dir}/api"
+         author="true"
+         version="true"
+         use="true"
+         doctitle="n"
+         windowtitle="n"
+         bottom = "Copyright &#169; 2002 Keep It Simple Advice. All Rights Reserved"
+      />
+   </target>
+
+  <target name="dist-jar" depends="init,compile">
+    <jar 
+      jarfile="${build-dir}/${app-name}.jar"
+      basedir="${class-dir}">
+      <manifest>
+        <attribute name="Manifest-Version" value="1.0"/>
+        <attribute name="Main-Class" value="net.dougharris.utility.jock"/>
+      </manifest>
+    </jar>
+  </target>
+
+  <target name="srcjar" depends="init,compile">
+    <jar jarfile="${build-dir}/${app-name}.src.jar">
+    <fileset dir="${src-dir}">
+      <patternset id="sources">
+        <include name="net/dougharris/utility/jock.java"/>
+        <include name="net/dougharris/utility/${app-name}mods/*.java"/>
+        <include name="net/dougharris/utility/P.java"/>
+        <include name="net/dougharris/utility/Processor.java"/>
+        <include name="net/dougharris/utility/ProcessorPump.java"/>
+        <include name="net/dougharris/utility/EchoProcessor.java"/>
+      </patternset>
+    </fileset>
+    </jar>
+  </target>
+  <target name="clean">
+    <delete dir="${build-dir}"/>
+  </target>
+</project>

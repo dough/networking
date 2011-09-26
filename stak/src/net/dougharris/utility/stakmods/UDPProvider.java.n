@@ -1,0 +1,87 @@
+     1	package net.dougharris.utility.stakmods;
+     2	
+     3	import net.dougharris.utility.PacketInputStream;
+     4	import java.io.IOException;
+     5	import java.io.EOFException;
+     6	import net.dougharris.utility.DumpHex;
+     7	
+     8	public class UDPProvider extends GenericProvider{
+     9	  private int sPort;
+    10	  private int dPort;
+    11	  private int checkSum;
+    12	private int nAvailable;//JDH
+    13	  public Provider parse(PacketInputStream i, int length, String parserTag) throws Exception{
+    14	nAvailable=i.available();
+    15	    setLength(length);
+    16	    setTag(parserTag);
+    17	    headerLength=0;
+    18	    sPort = i.readUnsignedShort();headerLength+=2;
+    19	    dPort = i.readUnsignedShort();headerLength+=2;
+    20	    /*
+    21	     * I guess this would also be the length
+    22	     */
+    23	    parsedLength = i.readUnsignedShort();headerLength+=2;
+    24	    checkSum = i.readUnsignedShort();headerLength+=2;
+    25	      /*
+    26	       *   At this point i has been moved right 8 bytes
+    27	       *   Also sPort and dPort have been extracted
+    28	       *   and need to be passed to the next Provider somehow
+    29	       *   Perhaps just by adding it to the pTag
+    30	       */
+    31	    /**
+    32	     * Here begins the parse.
+    33	     * For now it only knows
+    34	     * dns server deliver to DNS server parser
+    35	     * dns client
+    36	     */
+    37	      parsedTag="raw";
+    38	      if ((sPort==(short)53)||(dPort == (short)53)){
+    39	        parsedTag="dns";
+    40	      }
+    41	      if (dPort == (short)3300){
+    42	        parsedTag="rtp";
+    43	      }
+    44	      if (dPort == (short)3301){
+    45	        parsedTag="rtcp";
+    46	      }
+    47	      if (dPort == (short)3302){
+    48	        parsedTag="rtp";
+    49	      }
+    50	      if (dPort == (short)3303){
+    51	        parsedTag="rtcp";
+    52	      }
+    53	      if (dPort == (short)42050){
+    54	        parsedTag="rtp";
+    55	      }
+    56	      if (dPort == (short)42051){
+    57	        parsedTag="rtcp";
+    58	      }
+    59	      if (dPort == (short)42052){
+    60	        parsedTag="rtp";
+    61	      }
+    62	      if (dPort == (short)42053){
+    63	        parsedTag="rtcp";
+    64	      }
+    65	
+    66	      String messageTag = parsedTag+":"+sPort+" "+dPort;
+    67	      setMessageTag(messageTag);
+    68	      setMessageLength(parsedLength-headerLength);
+    69	      return this;
+    70	  }
+    71	
+    72	  public String providerReport(String type) throws Exception{
+    73	    StringBuffer b = new StringBuffer();
+    74	b.append("Available bytes:");
+    75	b.append(nAvailable);
+    76	b.append("\n");
+    77	    b.append("src:");
+    78	    b.append(sPort);
+    79	    b.append(" dst:");
+    80	    b.append(dPort);
+    81	    b.append(" length=");
+    82	    b.append(parsedLength);
+    83	    b.append(" cksum=");
+    84	    b.append(DumpHex.shortPrint((short)checkSum));
+    85	    return b.toString();
+    86	  }
+    87	}

@@ -1,0 +1,82 @@
+<project name="juke" basedir = "." default="compile">
+  <property name = "app-name" value="juke" />
+  <property name = "project-dir" value = "${basedir}" />
+  <property name = "src-dir" value = "${basedir}/src" />
+  <property name = "build-dir" value = "${project-dir}/build" />
+  <property name = "lib-dir" value = "${build-dir}/lib" />
+  <property name = "doc-dir" value = "${build-dir}/docs" />
+  <property name = "class-dir" value = "${build-dir}/classes" />
+  <property name = "build.compiler" value = "modern" />
+
+  <target name = "init">
+    <mkdir dir = "${build-dir}" />
+    <mkdir dir = "${class-dir}" />
+    <mkdir dir = "${lib-dir}" />
+    <mkdir dir = "${doc-dir}" />
+    <tstamp/>
+  </target>
+
+  <target name = "compile" depends = "init">
+    <javac destdir = "${class-dir}" includeAntRuntime="false">
+      <src path="${src-dir}"/>
+      <include name="net/dougharris/utility/juke.java"/>
+      <include name="net/dougharris/utility/P.java"/>
+      <include name="net/dougharris/utility/Chargen.java"/>
+      <include name="net/dougharris/utility/DiscardOutputStream.java"/>
+      <include name="net/dougharris/utility/Processor.java"/>
+      <include name="net/dougharris/utility/DatagramProcessorPump.java"/>
+      <include name="net/dougharris/utility/ProcessorException.java"/>
+      <include name="net/dougharris/utility/EchoProcessor.java"/>
+      <include name="net/dougharris/utility/HiProcessor.java"/>
+      <include name="net/dougharris/utility/CharIdentifier.java"/>
+    </javac>
+  </target>
+
+  <target name="clean">
+    <delete dir="${build-dir}"/>
+  </target>
+
+  <target name="docs" depends="compile">
+    <mkdir dir="${doc-dir}/api"/>
+      <javadoc
+         packagenames="net.dougharris.utility"
+	        sourcepath="${src-dir}"
+	        destdir="${doc-dir}/api"
+         author="true"
+         version="true"
+         use="true"
+         doctitle="${}"
+         windowtitle="${}"
+         bottom = "Copyright &#169; 2002 Keep It Simple Advice. All Rights Reserved"
+      />
+   </target>
+
+  <target name="dist-jar" depends="init,compile">
+    <jar 
+      jarfile="${build-dir}/${app-name}.jar"
+      basedir="${class-dir}">
+      <manifest>
+        <attribute name="Manifest-Version" value="1.0"/>
+        <attribute name="Main-Class" value="net.dougharris.utility.juke"/>
+      </manifest>
+    </jar>
+  </target>
+
+  <target name="srcjar" depends="init,compile">
+    <jar jarfile="${build-dir/${}.src.jar">
+    <fileset dir="${src-dir}">
+      <patternset id="sources">
+      <include name="net/dougharris/utility/juke.java"/>
+      <include name="net/dougharris/utility/P.java"/>
+      <include name="net/dougharris/utility/Chargen.java"/>
+      <include name="net/dougharris/utility/DiscardOutputStream.java"/>
+      <include name="net/dougharris/utility/Processor.java"/>
+      <include name="net/dougharris/utility/DatagramProcessorPump.java"/>
+      <include name="net/dougharris/utility/EchoProcessor.java"/>
+      <include name="net/dougharris/utility/HiProcessor.java"/>
+      <include name="net/dougharris/utility/CharIdentifier.java"/>
+      </patternset>
+    </fileset>
+    </jar>
+  </target>
+</project>

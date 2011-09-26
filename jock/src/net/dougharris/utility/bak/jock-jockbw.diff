@@ -1,0 +1,39 @@
+152a153,154
+>     int tWrite;
+>     long tWriteTime;
+182a185,187
+> 	tWrite=0;
+> 	tWriteTime=-cmdArgs.now();
+> 	cmdArgs.fine("Original tWriteTime is "+tWriteTime);
+185a191
+> 	  tWrite+=nWrite;
+188c194
+<              +" input to write "+nWrite);
+---
+>              +" input to write "+nWrite+" total "+tWrite);
+191a198,201
+> 	tWriteTime+=P.now();
+> 	double ftWriteTime=tWriteTime/1000.0;
+>         cmdArgs.fine("wrote "+tWrite+ " bytes in "+(ftWriteTime)+" s");
+>         cmdArgs.fine("writing Bandwidth = "+(tWrite/(ftWriteTime))+" bytes/sec");
+194,195d203
+<       } catch(java.net.SocketException x){
+<         throw new RuntimeException(x);
+236a245,246
+>       int tRead;
+>       long tReadTime;
+239a250,251
+> 	tRead=0;
+> 	tReadTime= -cmdArgs.now();
+242a255
+> 	  tRead+=nRead;
+244c257
+<             (whichOperator+" iteration "+iterationCount+" read "+nRead);
+---
+>     (whichOperator+" iteration "+iterationCount+" read "+nRead+" total "+tRead);
+247a261,263
+> 	tReadTime+=P.now();
+> 	double ftReadTime=tReadTime/1000.0;
+>         cmdArgs.fine("read "+tRead+ " bytes in "+(ftReadTime)+" s");
+248a265
+>         cmdArgs.fine("reading Bandwidth = "+(tRead/(ftReadTime))+" bytes/sec");
