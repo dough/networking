@@ -1,0 +1,2 @@
+The program juke sends and receives packets with a variety of parameters,
+always using the UDP protocol.

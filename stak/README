@@ -1,0 +1,2 @@
+The program stak reads a dumpfile created by tcpdump and extracts
+protocol information from each layer.

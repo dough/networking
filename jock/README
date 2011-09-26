@@ -1,0 +1,2 @@
+The program jock sends and receives packets with a variety of parameters,
+always using the TCP protocol.
